@@ -1,0 +1,43 @@
+name: Deploy App
+
+on: 
+  workflow_dispatch:
+  # push:
+  #   branches:
+  #     - main
+  #   paths:
+  #     - astra_core/**
+  #     - .github/workflows/deployApp.yaml
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      AZURE_CICD_CLIENT_ID: ${{ vars.AZURE_CICD_CLIENT_ID }}
+      AZURE_CICD_CLIENT_SECRET: ${{ secrets.AZURE_CICD_CLIENT_SECRET }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      AZURE_RESOURCE_GROUP_ID: ${{ vars.AZURE_RESOURCE_GROUP_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to Azure
+        run: |
+            echo "Prepare build zip" && \
+            rm -rf webapp-azure.zip && \
+            cp astra_core/backend/requirements.txt . && \
+            zip -rq webapp-azure.zip astra_core/backend/* requirements.txt && \
+
+            echo "Azure Login" && \
+            az login --service-principal --username $AZURE_CICD_CLIENT_ID --password $AZURE_CICD_CLIENT_SECRET --tenant $AZURE_TENANT_ID && \
+
+            echo "Setting Subscription" && \
+            az account set --subscription $AZURE_SUBSCRIPTION_ID && \
+
+            # echo "Get app name" && \
+            # app_name=$(az deployment group show --resource-group $AZURE_RESOURCE_GROUP_ID --name main --query properties.outputs.appapiName.value -o tsv) && \
+
+            echo "Publishing to app"
+            az webapp deploy --resource-group $AZURE_RESOURCE_GROUP_ID --name app-api-maf-dev --src-path ./webapp-azure.zip --type zip --async true --clean true --restart true --debug

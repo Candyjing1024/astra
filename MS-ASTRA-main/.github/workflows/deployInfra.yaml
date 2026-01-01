@@ -1,0 +1,50 @@
+name: Deploy Infra
+
+on: 
+  schedule:
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+  # push:
+  #   branches:
+  #     - main
+  #   paths:
+  #     - astra_core/**
+  #     - .github/workflows/deploy.yaml
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      AZURE_CICD_CLIENT_ID: ${{ vars.AZURE_CICD_CLIENT_ID }}
+      AZURE_CICD_CLIENT_SECRET: ${{ secrets.AZURE_CICD_CLIENT_SECRET }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      AZURE_RESOURCE_GROUP_ID: ${{ vars.AZURE_RESOURCE_GROUP_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to Azure
+        run: |
+            echo "Azure Login" && \
+            az login --service-principal --username $AZURE_CICD_CLIENT_ID --password $AZURE_CICD_CLIENT_SECRET --tenant $AZURE_TENANT_ID && \
+
+            echo "Setting Subscription" && \
+            az account set --subscription $AZURE_SUBSCRIPTION_ID && \
+
+            echo "Deploying using main.bicep" && \
+            az deployment group create --resource-group $AZURE_RESOURCE_GROUP_ID --template-file "${{ github.workspace }}/astra_core/deploy/main.bicep" --parameters "${{ github.workspace }}/astra_core/deploy/parameters/dev/main.bicepparam" && \
+
+            echo "Fetching resource names" && \
+            keyvault_name=$(az deployment group show --resource-group $AZURE_RESOURCE_GROUP_ID --name main --query properties.outputs.kvtName.value -o tsv) && \
+            search_service_name=$(az deployment group show --resource-group $AZURE_RESOURCE_GROUP_ID --name main --query properties.outputs.searchName.value -o tsv) && \
+            ai_service_name=$(az deployment group show --resource-group $AZURE_RESOURCE_GROUP_ID --name main --query properties.outputs.aiservicesName.value -o tsv) && \
+            cosmosdb_account_name=$(az deployment group show --resource-group $AZURE_RESOURCE_GROUP_ID --name main --query properties.outputs.cosmosdbName.value -o tsv) && \
+
+            echo "Setting keys as secrets" && \
+            search_key=$(az search admin-key show --resource-group $AZURE_RESOURCE_GROUP_ID --service-name $search_service_name --query primaryKey -o tsv) && \
+            az keyvault secret set --vault-name $keyvault_name --name "aisearch-key" --value $search_key --output none && \
+            ai_service_key=$(az cognitiveservices account keys list --name $ai_service_name --resource-group $AZURE_RESOURCE_GROUP_ID --query key1 -o tsv) && \
+            az keyvault secret set --vault-name $keyvault_name --name "aiservices-key" --value $ai_service_key --output none && \
+            cosmosdb_account_key=$(az cosmosdb keys list --name $cosmosdb_account_name --resource-group $AZURE_RESOURCE_GROUP_ID --query primaryMasterKey -o tsv) && \
+            az keyvault secret set --vault-name $keyvault_name --name "cosmosdb-key" --value $cosmosdb_account_key --output none

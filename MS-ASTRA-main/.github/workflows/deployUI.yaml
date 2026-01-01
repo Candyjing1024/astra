@@ -1,0 +1,86 @@
+name: Deploy UI App
+
+on: 
+  workflow_dispatch:
+  # push:
+  #   branches:
+  #     - main
+  #   paths:
+  #     - astra_core/frontend/**
+  #     - .github/workflows/deployUI.yaml
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      AZURE_CICD_CLIENT_ID: ${{ vars.AZURE_CICD_CLIENT_ID }}
+      AZURE_CICD_CLIENT_SECRET: ${{ secrets.AZURE_CICD_CLIENT_SECRET }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      AZURE_RESOURCE_GROUP_ID: ${{ vars.AZURE_RESOURCE_GROUP_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build Frontend
+        run: |
+          cd astra_core/frontend/client
+          npm install
+          # Set the CopilotKit URL to use the same origin in production
+          echo "VITE_COPILOTKIT_URL=/copilotkit" > .env.production
+          npm run build
+
+      - name: Prepare and Build Backend
+        run: |
+          cd astra_core/frontend/copilot-runtime-service
+          npm install
+          # Compile TypeScript to JavaScript for production
+          npx tsc --init --target ES2022 --module ESNext --moduleResolution node --outDir dist --rootDir . --esModuleInterop --allowSyntheticDefaultImports --strict
+          npx tsc
+
+      - name: Create Production Package
+        run: |
+          # Create webapp folder structure
+          mkdir -p webapp
+          
+          # Copy built frontend to root (not public subfolder)
+          cp -r astra_core/frontend/client/dist/* webapp/
+          
+          # Copy backend service files (including compiled server.js)
+          cp -r astra_core/frontend/copilot-runtime-service/dist/* webapp/
+          cp astra_core/frontend/copilot-runtime-service/package.json webapp/
+          cp astra_core/frontend/copilot-runtime-service/package-lock.json webapp/ || true
+          
+          # Install production dependencies only
+          cd webapp
+          npm install --production
+          
+          # Set the entry point to the compiled server.js
+          # (Assumes copilot-runtime-service/dist/server.js exists)
+          mv server.js index.js || true
+          
+
+
+
+      - name: Create Deployment Package
+        run: |
+          # Create final deployment zip
+          cd webapp && zip -rq ../webapp-azure.zip .
+
+      - name: Deploy to Azure
+        run: |
+          az login --service-principal --username $AZURE_CICD_CLIENT_ID --password $AZURE_CICD_CLIENT_SECRET --tenant $AZURE_TENANT_ID
+          az account set --subscription $AZURE_SUBSCRIPTION_ID
+
+          az webapp deploy \
+            --resource-group $AZURE_RESOURCE_GROUP_ID \
+            --name app-ui-maf-dev \
+            --src-path ./webapp-azure.zip \
+            --type zip \
+            --clean true \
+            --restart true

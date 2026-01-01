@@ -1,0 +1,19 @@
+{
+  "name": "astra-core-copilot-runtime",
+  "version": "1.0.0",
+  "description": "Generic CopilotKit Runtime Service for ASTRA Core",
+  "main": "server.ts",
+  "scripts": {
+    "dev": "tsx watch server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "@copilotkit/runtime": "^1.9.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}
